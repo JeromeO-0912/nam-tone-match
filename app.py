@@ -29,9 +29,9 @@ def create_job():
         upload_fileobj(di, di_key, content_type=di.content_type)
         upload_fileobj(reference, reference_key, content_type=reference.content_type)
 
-        job.di_s3_key
-        job.reference_s3_key
-        session.commit()
+        job.di_s3_key = di_key
+        job.reference_s3_key = reference_key
+        session.commit() 
 
         return jsonify({"id": job.id, "status": job.status}), 201
     finally:
