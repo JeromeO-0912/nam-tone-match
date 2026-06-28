@@ -21,7 +21,13 @@ def claim_next_job(session):
     session.commit()
     return job
 
+def _ext(key, default=".bin"):
+    return os.path.splitext(key)[1] or default
+
 def process_job(job):
+    if not job.di_s3_key or not job.reference_s3_key:
+        raise ValueError("Job is missing required S3 keys for DI and reference audio.")
+    
     with tempfile.TemporaryDirectory() as tmpdir:
         di_local_path = os.path.join(tmpdir, "di.wav")
         reference_local_path = os.path.join(tmpdir, "reference.wav")
