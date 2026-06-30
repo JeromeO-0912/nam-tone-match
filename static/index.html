@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>tone-match</title>
+  <style>
+    :root { --bg:#0f1115; --panel:#1a1d24; --line:#2a2f3a; --text:#e6e8ec; --muted:#9aa3b2; --accent:#e0a44a; --boost:#4aa3e0; --cut:#e06a4a; --done:#4ad07a; }
+    * { box-sizing: border-box; }
+    body { margin:0; background:var(--bg); color:var(--text); font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+    .wrap { max-width: 720px; margin: 0 auto; padding: 48px 24px; }
+    h1 { font-size: 28px; margin: 0 0 4px; }
+    .sub { color: var(--muted); margin: 0 0 28px; }
+    .panel { background: var(--panel); border:1px solid var(--line); border-radius: 12px; padding: 24px; margin-bottom: 20px; }
+    label.file { display:block; margin-bottom:16px; }
+    label.file .lbl { display:block; font-size:14px; color:var(--muted); margin-bottom:6px; }
+    .drop { border:1px dashed var(--line); border-radius:8px; padding:14px; display:flex; align-items:center; justify-content:space-between; gap:12px; cursor:pointer; }
+    .drop:hover { border-color:#3a4150; }
+    .drop .name { color:var(--muted); font-size:14px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    input[type=file] { display:none; }
+    button { background:var(--accent); color:#1a1205; border:none; border-radius:8px; padding:12px 20px; font-size:15px; font-weight:600; cursor:pointer; }
+    button:disabled { opacity:.5; cursor:not-allowed; }
+    .status { display:flex; align-items:center; gap:10px; font-size:14px; color:var(--muted); }
+    .dot { width:9px; height:9px; border-radius:50%; background:var(--muted); }
+    .dot.run { background:var(--accent); animation:pulse 1s infinite; }
+    .dot.done { background:var(--done); }
+    .dot.fail { background:var(--cut); }
+    @keyframes pulse { 50% { opacity:.3; } }
+    .hidden { display:none; }
+    h2 { margin:0 0 4px; font-size:18px; }
+    .band { display:grid; grid-template-columns: 88px 1fr 52px; align-items:center; gap:10px; margin:7px 0; font-size:13px; }
+    .barwrap { position:relative; height:18px; background:#12151b; border-radius:4px; }
+    .center { position:absolute; left:50%; top:0; bottom:0; width:1px; background:var(--line); }
+    .bar { position:absolute; top:3px; bottom:3px; border-radius:3px; }
+    .val { text-align:right; color:var(--muted); font-variant-numeric: tabular-nums; }
+    .bright { display:flex; gap:28px; margin-top:18px; font-size:15px; }
+    .bright .k { color:var(--muted); display:block; font-size:12px; margin-bottom:2px; }
+    .err { color:var(--cut); font-size:14px; margin:12px 0 0; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>tone-match</h1>
+    <p class="sub">Upload a clean guitar DI and a reference tone. Get the EQ move that takes you toward it.</p>
+
+    <div class="panel">
+      <label class="file">
+        <span class="lbl">Clean DI (your guitar)</span>
+        <div class="drop" onclick="diInput.click()">
+          <span class="name" id="diName">Choose a .wav or .mp3 file…</span><span>Browse</span>
+        </div>
+        <input type="file" id="diInput" accept="audio/*" />
+      </label>
+
+      <label class="file">
+        <span class="lbl">Reference tone (the sound you want)</span>
+        <div class="drop" onclick="refInput.click()">
+          <span class="name" id="refName">Choose a .wav or .mp3 file…</span><span>Browse</span>
+        </div>
+        <input type="file" id="refInput" accept="audio/*" />
+      </label>
+
+      <button id="submitBtn" onclick="submitJob()">Match tone</button>
+      <p class="err hidden" id="error"></p>
+    </div>
+
+    <div class="panel hidden" id="statusPanel">
+      <div class="status"><span class="dot" id="dot"></span><span id="statusText">Queued…</span></div>
+    </div>
+
+    <div class="panel hidden" id="resultPanel">
+      <h2>EQ match</h2>
+      <p class="sub" style="margin-bottom:16px;">Positive = boost this band on your DI; negative = cut it.</p>
+      <div id="bands"></div>
+      <div class="bright" id="bright"></div>
+    </div>
+  </div>
+
+  <script>
+    const diInput = document.getElementById('diInput');
+    const refInput = document.getElementById('refInput');
+    const $ = id => document.getElementById(id);
+    diInput.onchange = () => $('diName').textContent = diInput.files[0]?.name || 'Choose a file…';
+    refInput.onchange = () => $('refName').textContent = refInput.files[0]?.name || 'Choose a file…';
+
+    function showError(m){ const e=$('error'); e.textContent=m; e.classList.remove('hidden'); }
+    function clearError(){ $('error').classList.add('hidden'); }
+    function setStatus(t,c){ $('statusText').textContent=t; $('dot').className='dot '+(c||''); }
+
+    async function submitJob() {
+      clearError();
+      const di = diInput.files[0], ref = refInput.files[0];
+      if (!di || !ref) { showError('Please choose both a DI and a reference file.'); return; }
+      $('submitBtn').disabled = true;
+      const form = new FormData();
+      form.append('di', di); form.append('reference', ref);
+      try {
+        const res = await fetch('/jobs', { method: 'POST', body: form });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Upload failed');
+        $('resultPanel').classList.add('hidden');
+        $('statusPanel').classList.remove('hidden');
+        poll(data.id);
+      } catch (err) {
+        showError(err.message); $('submitBtn').disabled = false;
+      }
+    }
+
+    async function poll(id) {
+      try {
+        const data = await (await fetch('/jobs/' + id)).json();
+        if (data.status === 'completed') { setStatus('Done', 'done'); loadResult(id); }
+        else if (data.status === 'failed') { setStatus('Job failed', 'fail'); $('submitBtn').disabled = false; }
+        else {
+          setStatus(data.status === 'processing' ? 'Analyzing audio…' : 'Queued…', 'run');
+          setTimeout(() => poll(id), 2000);
+        }
+      } catch { setStatus('Error checking status', 'fail'); $('submitBtn').disabled = false; }
+    }
+
+    async function loadResult(id) {
+      const r = await (await fetch('/jobs/' + id + '/result')).json();
+      renderResult(r);
+      $('submitBtn').disabled = false;
+    }
+
+    function renderResult(r) {
+      const bands = $('bands'); bands.innerHTML = '';
+      const MAX = 12;
+      for (const [name, vRaw] of Object.entries(r.eq_match_db || {})) {
+        const v = Math.max(-MAX, Math.min(MAX, vRaw));
+        const pct = Math.abs(v) / MAX * 50;
+        const color = v >= 0 ? 'var(--boost)' : 'var(--cut)';
+        const barStyle = v >= 0 ? `left:50%; width:${pct}%; background:${color};`
+                                : `right:50%; width:${pct}%; background:${color};`;
+        const row = document.createElement('div');
+        row.className = 'band';
+        row.innerHTML = `<span>${name}</span>
+          <div class="barwrap"><div class="center"></div><div class="bar" style="${barStyle}"></div></div>
+          <span class="val">${vRaw >= 0 ? '+' : ''}${vRaw.toFixed(1)}</span>`;
+        bands.appendChild(row);
+      }
+      $('bright').innerHTML =
+        `<div><span class="k">Your DI brightness</span>${Math.round(r.di_brightness_hz)} Hz</div>
+         <div><span class="k">Reference brightness</span>${Math.round(r.reference_brightness_hz)} Hz</div>`;
+      $('resultPanel').classList.remove('hidden');
+    }
+  </script>
+</body>
+</html>

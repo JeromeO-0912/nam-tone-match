@@ -25,3 +25,7 @@ def upload_file(file_path, key, content_type=None):
     extra = {"ContentType": content_type} if content_type else {}
     s3.upload_file(file_path, BUCKET, key, ExtraArgs=extra)
     return key
+
+def get_object_bytes(key):
+    response = s3.get_object(Bucket=BUCKET, Key=key)
+    return response['Body'].read()
